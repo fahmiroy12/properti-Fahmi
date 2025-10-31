@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portal Properti - Demo</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <style>
+    :root{--bg:#f7f9fc;--card:#fff;--muted:#6b7280;--accent:#2563eb}
+    *{box-sizing:border-box}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:var(--bg);color:#0f172a}
+    header{background:linear-gradient(90deg,#0ea5e9, #6366f1);color:#fff;padding:18px 22px;display:flex;align-items:center;gap:18px}
+    .logo{font-weight:700;font-size:18px}
+    .container{display:grid;grid-template-columns:380px 1fr;gap:18px;padding:18px;max-width:1200px;margin:18px auto}
+    .sidebar{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 6px 20px rgba(2,6,23,0.06)}
+    .search{display:flex;gap:8px;margin-bottom:12px}
+    .search input{flex:1;padding:10px;border-radius:8px;border:1px solid #e6e9ee}
+    .list{display:flex;flex-direction:column;gap:10px;max-height:72vh;overflow:auto;padding-right:6px}
+    .card{background:linear-gradient(180deg,#fff,#fbfdff);border-radius:10px;padding:10px;border:1px solid #eef2ff;display:flex;gap:10px;align-items:center}
+    .thumbnail{width:92px;height:70px;border-radius:8px;flex-shrink:0;background-size:cover;background-position:center}
+    .meta{flex:1}
+    .meta h4{margin:0 0 6px 0;font-size:15px}
+    .meta p{margin:0;color:var(--muted);font-size:13px}
+    .actions{display:flex;gap:8px;margin-top:8px}
+    .btn{background:var(--accent);color:white;padding:8px 10px;border-radius:8px;border:0;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,0.12)}
+    .map-wrap{height:72vh;border-radius:12px;overflow:hidden;box-shadow:0 6px 20px rgba(2,6,23,0.06)}
+    #map{width:100%;height:100%}
+    .detail-pane{background:var(--card);border-radius:12px;padding:14px;margin-top:12px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    /* modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,0.45);display:flex;align-items:center;justify-content:center;z-index:50}
+    .modal{background:white;border-radius:12px;padding:18px;max-width:520px;width:94%;box-shadow:0 8px 30px rgba(2,6,23,0.2)}
+    .close{background:transparent;border:0;font-size:18px;cursor:pointer}
+    label{display:block;font-size:13px;margin-bottom:6px;color:var(--muted)}
+    input[type=text],input[type=email],input[type=tel],textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #e6e9ee}
+    @media (max-width:900px){.container{grid-template-columns:1fr;}.map-wrap{height:52vh}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Portal Properti</div>
+    <div style="opacity:.9">Temukan rumah impian - demo interaktif</div>
+  </header>
+
+  <main class="container">
+    <aside class="sidebar">
+      <div class="search">
+        <input id="search" placeholder="Cari lokasi, nama properti..." />
+        <button id="reset" class="btn ghost">Reset</button>
+      </div>
+      <div class="list" id="propertyList"></div>
+    </aside>
+
+    <section>
+      <div class="map-wrap" id="mapWrap">
+        <div id="map"></div>
+      </div>
+
+      <div class="detail-pane" id="detailPane" style="display:none">
+        <!-- detail injected by JS -->
+      </div>
+    </section>
+  </main>
+
+  <!-- modal (hidden) -->
+  <div id="modalRoot" style="display:none"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    // sample data
+    const properties = [
+      {id:1,title:'Rumah Minimalis dikarawang ',price:985000000,lat:-6.3098,lon:107.3008,thumb:'rumah minimalis karawang.jpg',type:'Rumah',area:'perumahan kartika',beds:3,baths:2,desc:'Rumah 2 lantai, lingkungan aman, dekat MRT.'},
+      {id:2,title:'HOTEL Modern di karawang',price:1500000000,lat:-6.3219,lon:107.3349,thumb:'HOTEL BATIQA karawang.webp',type:'HOTEL',area:'karawang',beds:2,baths:1,desc:'Tower baru, fasilitas gym dan rooftop.'},
+      {id:3,title:'Kavling Siap Bangun - karawang',price:480000000,lat:-6.3278,lon:107.3500,thumb:'kavling siap bangun dikarawang.webp',type:'Kavling',area:'karawang',beds:0,baths:0,desc:'Akses tol 10 menit, lingkungan hijau.'}
+    ];
+
+    // initialize map
+    const map = L.map('map').setView([-6.3227, 107.3376], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const markers = {};
+
+    function priceFormat(v){ return 'Rp ' + v.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+    // render list
+    const listEl = document.getElementById('propertyList');
+    function renderList(filter=''){
+      listEl.innerHTML='';
+      const f = filter.trim().toLowerCase();
+      properties.filter(p => !f || (p.title + ' ' + p.area + ' ' + p.type).toLowerCase().includes(f))
+        .forEach(p => {
+          const el = document.createElement('div'); el.className='card';
+          el.innerHTML = `
+            <div class="thumbnail" style="background-image:url('${p.thumb}')"></div>
+            <div class="meta">
+              <h4>${p.title}</h4>
+              <p>${p.area} • ${p.type} • ${priceFormat(p.price)}</p>
+              <div class="actions">
+                <button class="btn" data-id="${p.id}">Lihat Detail</button>
+                <button class="btn ghost" data-buy="${p.id}">Beli Sekarang</button>
+              </div>
+            </div>`;
+          listEl.appendChild(el);
+        });
+    }
+
+    // add markers
+    properties.forEach(p=>{
+      const m = L.marker([p.lat,p.lon]).addTo(map).bindPopup(`<b>${p.title}</b><br>${priceFormat(p.price)}`);
+      m.on('click',()=> showDetail(p.id));
+      markers[p.id]=m;
+    });
+
+    // show detail
+    const detailPane = document.getElementById('detailPane');
+    function showDetail(id){
+      const p = properties.find(x=>x.id===id); if(!p) return;
+      detailPane.style.display='block';
+      detailPane.innerHTML = `
+        <div style="display:flex;gap:12px;align-items:center">
+          <img src="${p.thumb}" style="width:160px;border-radius:8px;object-fit:cover;height:110px" />
+          <div>
+            <h3 style="margin:0">${p.title}</h3>
+            <div style="color:var(--muted);margin-top:6px">${p.area} • ${p.type}</div>
+            <div style="margin-top:8px;font-weight:700">${priceFormat(p.price)}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px">${p.desc}</div>
+        <div style="margin-top:12px" class="grid">
+          <div><strong>Kamar:</strong> ${p.beds}</div>
+          <div><strong>Kamar Mandi:</strong> ${p.baths}</div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn" id="toBuy" data-id="${p.id}">Beli Sekarang</button>
+          <button class="btn ghost" id="centerMap" data-id="${p.id}">Tunjukkan di Peta</button>
+        </div>
+      `;
+
+      document.getElementById('centerMap').addEventListener('click',()=>{
+        map.setView([p.lat,p.lon],15,{animate:true});
+        markers[p.id].openPopup();
+      });
+
+      document.getElementById('toBuy').addEventListener('click',()=> openBuyModal(p));
+      // scroll into view on small screens
+      detailPane.scrollIntoView({behavior:'smooth'});
+    }
+
+    // buy modal
+    const modalRoot = document.getElementById('modalRoot');
+    function openBuyModal(property){
+      modalRoot.style.display='block';
+      modalRoot.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <strong>Beli: ${property.title}</strong>
+              <button class="close" id="closeModal">✕</button>
+            </div>
+            <form id="buyForm">
+              <label>Nama</label>
+              <input type="text" id="buyerName" required />
+              <label>Email</label>
+              <input type="email" id="buyerEmail" required />
+              <label>No. Telepon</label>
+              <input type="tel" id="buyerPhone" required />
+              <label>Catatan (opsional)</label>
+              <textarea id="buyerNote" rows="3"></textarea>
+              <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+                <button type="button" class="btn ghost" id="cancelBuy">Batal</button>
+                <button type="submit" class="btn">Konfirmasi Beli</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('closeModal').addEventListener('click',closeModal);
+      document.getElementById('cancelBuy').addEventListener('click',closeModal);
+      document.getElementById('buyForm').addEventListener('submit',function(e){
+        e.preventDefault();
+        const name = document.getElementById('buyerName').value.trim();
+        const email = document.getElementById('buyerEmail').value.trim();
+        const phone = document.getElementById('buyerPhone').value.trim();
+        if(!name||!email||!phone){ alert('Mohon lengkapi data pembeli.'); return; }
+        // simulate purchase request
+        closeModal();
+        alert('Terima kasih, ' + name + '! Permintaan pembelian untuk "' + property.title + '" telah diterima. Kami akan menghubungi Anda melalui ' + phone + '.');
+      });
+    }
+
+    function closeModal(){ modalRoot.style.display='none'; modalRoot.innerHTML=''; }
+
+    // wire up search + list events
+    document.getElementById('search').addEventListener('input',e=> renderList(e.target.value));
+    document.getElementById('reset').addEventListener('click',()=>{ document.getElementById('search').value=''; renderList(); map.setView([-6.2,106.8],11); });
+
+    // delegate clicks from list (delegation to capture dynamically created nodes)
+    listEl.addEventListener('click',e=>{
+      const id = e.target.getAttribute('data-id');
+      const buy = e.target.getAttribute('data-buy');
+      if(id) showDetail(Number(id));
+      if(buy) openBuyModal(properties.find(p=>p.id===Number(buy)));
+    });
+
+    // initial render
+    renderList();
+
+  </script>
+</body>
+</html>
